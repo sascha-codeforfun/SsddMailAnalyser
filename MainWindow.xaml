@@ -1,0 +1,683 @@
+<Window x:Class="SsddMailAnalyser.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:busy="clr-namespace:BusyOverlayKit"
+        Title="SsddMailAnalyser"
+        Icon="/app.ico"
+        Style="{StaticResource Hue.Window}"
+        Width="1200" Height="880" MinWidth="940" MinHeight="640"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <!-- Outcome dot in the trace grid: the marker's colour is its Foreground, from status tokens. -->
+        <Style x:Key="Trace.Marker" TargetType="ContentControl" BasedOn="{StaticResource Hue.Marker}">
+            <Setter Property="Foreground" Value="{DynamicResource Brush.Stale}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Outcome}" Value="Ok">
+                    <Setter Property="Foreground" Value="{DynamicResource Brush.Ok}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Outcome}" Value="Warn">
+                    <Setter Property="Foreground" Value="{DynamicResource Brush.Warn}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Outcome}" Value="Fail">
+                    <Setter Property="Foreground" Value="{DynamicResource Brush.Error}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />  <!-- header -->
+            <RowDefinition Height="*" />     <!-- body   -->
+            <RowDefinition Height="Auto" />  <!-- status -->
+        </Grid.RowDefinitions>
+
+        <!-- ============================================================ header -->
+        <Border Grid.Row="0" Style="{StaticResource Hue.Header}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />     <!-- identity                -->
+                    <ColumnDefinition Width="Auto" />  <!-- result pills, dead centre -->
+                    <ColumnDefinition Width="*" />     <!-- version, header actions -->
+                </Grid.ColumnDefinitions>
+
+                <DockPanel>
+                    <ContentControl Style="{StaticResource Hue.IconGlow}" Width="64" Height="64">
+                        <Image Source="/app_256.png" RenderOptions.BitmapScalingMode="HighQuality" />
+                    </ContentControl>
+                    <StackPanel Margin="18,0,24,0" VerticalAlignment="Center">
+                        <TextBlock Text="SsddMailAnalyser" Style="{StaticResource Text.Title}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Style="{StaticResource Text.Body}" Margin="0,4,0,0"
+                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                   Text="Suspicious SPF, DKIM, DMARC: guided diagnosis of mail that stopped arriving, from old headers, bounces and live DNS."
+                                   ToolTip="Suspicious SPF, DKIM, DMARC: guided diagnosis of mail that stopped arriving, from old headers, bounces and live DNS." />
+                    </StackPanel>
+                </DockPanel>
+
+                <!-- What the last run found, counted from its findings. None before a run; a count
+                     of zero is plain grey; all three go grey once the evidence has changed. -->
+                <StackPanel x:Name="HeaderPills" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                            Visibility="Collapsed">
+                    <ContentControl x:Name="PassedPill" Style="{StaticResource Hue.Pill}" Content="Passed 0" />
+                    <ContentControl x:Name="WarningsPill" Style="{StaticResource Hue.Pill}" Content="Warnings 0" Margin="8,0,0,0" />
+                    <ContentControl x:Name="ProblemsPill" Style="{StaticResource Hue.Pill}" Content="Problems 0" Margin="8,0,0,0" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right"
+                            VerticalAlignment="Center" Margin="24,0,0,0">
+                    <!-- Operator's decision, as in the other suite apps: the settings button sits in
+                         front of the version block, which ends the header (the 1.1.5 guide puts
+                         header actions after it). The default button, wider than an icon button. -->
+                    <Button Click="OnSettings" VerticalAlignment="Center" MinWidth="48" Padding="14,0" Margin="0,0,22,0"
+                            ToolTip="Settings: my domains, busy animation" AutomationProperties.Name="Settings">
+                        <Path Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Settings}"
+                              Width="18" Height="18" Stretch="Uniform" />
+                    </Button>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="VersionText" Style="{StaticResource Text.Version}" />
+                        <TextBlock x:Name="SdkText" Style="{StaticResource Text.Caption}" HorizontalAlignment="Right" />
+                        <TextBlock x:Name="RuntimeText" Style="{StaticResource Text.Caption}" HorizontalAlignment="Right" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ============================================================ body -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="232" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- side navigation: the four steps -->
+            <Border Grid.Column="0" Background="{DynamicResource Brush.Chrome}"
+                    BorderBrush="{DynamicResource Brush.LineSoft}" BorderThickness="0,0,1,0" Padding="14,20">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />     <!-- the steps            -->
+                        <RowDefinition Height="Auto" />  <!-- New case, at the foot -->
+                    </Grid.RowDefinitions>
+                <StackPanel>
+                    <TextBlock Text="STEPS" Style="{StaticResource Text.Section}" Margin="12,0,0,10" />
+                    <RadioButton x:Name="NavProblem" Style="{StaticResource Hue.NavItem}" GroupName="Steps"
+                                 Content="1   What broke" IsChecked="True" Checked="OnNavChecked" />
+                    <RadioButton x:Name="NavEvidence" Style="{StaticResource Hue.NavItem}" GroupName="Steps"
+                                 Content="2   Evidence" Checked="OnNavChecked" />
+                    <RadioButton x:Name="NavChecks" Style="{StaticResource Hue.NavItem}" GroupName="Steps"
+                                 Content="3   Checks" Checked="OnNavChecked" />
+                    <RadioButton x:Name="NavDiagnosis" Style="{StaticResource Hue.NavItem}" GroupName="Steps"
+                                 Content="4   Diagnosis" Checked="OnNavChecked" IsEnabled="False"
+                                 ToolTipService.ShowOnDisabled="True" ToolTip="Run the checks first" />
+
+                    <TextBlock Style="{StaticResource Text.Caption}" Margin="12,24,8,0"
+                               Text="Every step can be revisited. Changing the evidence after a run asks for a new run." />
+                </StackPanel>
+
+                    <!-- Applies to every step, so it sits with the steps, at the foot of the panel. -->
+                    <Button x:Name="NewCaseButton" Grid.Row="1" Click="OnNewCase" ToolTip="Clear everything and start over"
+                            HorizontalAlignment="Left" Margin="12,16,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Refresh}" />
+                            <TextBlock Text="New case" Margin="8,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Border>
+
+            <!-- ======================================================== page 1: what broke -->
+            <ScrollViewer x:Name="PageProblem" Grid.Column="1" Padding="28,24" VerticalScrollBarVisibility="Auto">
+                <StackPanel MaxWidth="1040" HorizontalAlignment="Stretch">
+                    <TextBlock Text="What broke?" Style="{StaticResource Text.Heading}" />
+                    <TextBlock Style="{StaticResource Text.Body}" Margin="0,6,0,18"
+                               Text="Pick the direction. It decides which side's DNS is checked for SPF, DKIM and DMARC, and which side's mail servers must accept the mail." />
+
+                    <Border Style="{StaticResource Hue.Card}">
+                        <StackPanel>
+                            <TextBlock Text="DIRECTION" Style="{StaticResource Text.Section}" Margin="0,0,0,12" />
+                            <RadioButton x:Name="DirInbound" GroupName="Direction" IsChecked="True" Checked="OnDirectionChanged"
+                                         AutomationProperties.Name="Incoming: the recipient is at this site">
+                                <StackPanel Margin="4,0,0,0">
+                                    <TextBlock Text="Incoming: an external sender's mail no longer reaches the recipient here" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource Text.Body}" Margin="0,3,0,0"
+                                               Text="The recipient is at the site being supported. A sender who used to get through now doesn't: nothing arrives, or the sender reports a bounce." />
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton x:Name="DirOutbound" GroupName="Direction" Margin="0,14,0,0" Checked="OnDirectionChanged"
+                                         AutomationProperties.Name="Outgoing: the sender is at this site">
+                                <StackPanel Margin="4,0,0,0">
+                                    <TextBlock Text="Outgoing: mail from here no longer reaches an external recipient" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource Text.Body}" Margin="0,3,0,0"
+                                               Text="The sender is at the site being supported. The recipient doesn't get the mail, or the sender gets a bounce back." />
+                                </StackPanel>
+                            </RadioButton>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Hue.Card}" Margin="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock Text="WHAT IS KNOWN TO WORK" Style="{StaticResource Text.Section}" Margin="0,0,0,12" />
+                            <CheckBox x:Name="OtherMailWorksBox" Checked="OnEvidenceToggle" Unchecked="OnEvidenceToggle"
+                                      AutomationProperties.Name="Other mail on the supported side works normally">
+                                <TextBlock x:Name="OtherMailWorksText" TextWrapping="Wrap" />
+                            </CheckBox>
+                            <TextBlock x:Name="OtherMailWorksHint" Style="{StaticResource Text.Caption}" Margin="26,6,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Hue.Card}" Margin="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock Text="WHERE THIS ANALYSIS RUNS" Style="{StaticResource Text.Section}" Margin="0,0,0,12" />
+                            <RadioButton x:Name="LocIsolated" GroupName="Location" IsChecked="True" Checked="OnLocationChanged"
+                                         AutomationProperties.Name="On an isolated analysis system">
+                                <StackPanel Margin="4,0,0,0">
+                                    <TextBlock Text="On an isolated analysis system" FontWeight="SemiBold" />
+                                    <TextBlock Style="{StaticResource Text.Body}" Margin="0,3,0,0"
+                                               Text="Internet access, but no access to the sender's or the recipient's mail servers or DNS. Uses public DNS and the evidence you bring along; the report lists what to ask whom." />
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton x:Name="LocInternal" GroupName="Location" Margin="0,14,0,0" Checked="OnLocationChanged"
+                                         AutomationProperties.Name="Inside the supported site's network">
+                                <StackPanel Margin="4,0,0,0">
+                                    <TextBlock Text="Inside the supported site's network" FontWeight="SemiBold" />
+                                    <TextBlock Style="{StaticResource Text.Body}" Margin="0,3,0,0"
+                                               Text="Uses the site's own DNS server, as its mail gateway does, and compares its answers with the public view (split DNS, broken forwarders)." />
+                                </StackPanel>
+                            </RadioButton>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Hue.Card}" Margin="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock Text="WHO IS INVOLVED" Style="{StaticResource Text.Section}" Margin="0,0,0,12" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="20" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <Label Content="_Sender address or domain" Target="{Binding ElementName=SenderBox}" />
+                                    <TextBox x:Name="SenderBox" AutomationProperties.Name="Sender address or domain" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <Label Content="_Recipient address or domain" Target="{Binding ElementName=RecipientBox}" />
+                                    <TextBox x:Name="RecipientBox" AutomationProperties.Name="Recipient address or domain" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Style="{StaticResource Text.Caption}" Margin="0,10,0,0"
+                                       Text="Optional. Left empty, both are taken from the headers and the bounce." />
+
+                            <!-- The operator's own domains, from SsddMailAnalyser.json: picking one fills the
+                                 side that is "here" (the recipient for incoming, the sender for outgoing). -->
+                            <StackPanel x:Name="MyDomainRow" Orientation="Horizontal" Margin="0,16,0,0" Visibility="Collapsed">
+                                <Label Content="_My domain" Target="{Binding ElementName=MyDomainBox}" VerticalAlignment="Center" Padding="0,0,10,0" />
+                                <ComboBox x:Name="MyDomainBox" MinWidth="280" SelectionChanged="OnMyDomainPicked"
+                                          AutomationProperties.Name="My domain" />
+                                <TextBlock x:Name="MyDomainHint" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                            </StackPanel>
+                            <TextBlock x:Name="MyDomainEmpty" Style="{StaticResource Text.Caption}" Margin="0,10,0,0"
+                                       Text="Tip: save your own domains under Settings (the gear, top right) to pick them here instead of typing." />
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+                        <Button Style="{StaticResource Hue.Button.Primary}" Click="OnNextToEvidence" Content="Next: evidence" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ======================================================== page 2: evidence -->
+            <ScrollViewer x:Name="PageEvidence" Grid.Column="1" Padding="28,24" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <StackPanel MaxWidth="1040" HorizontalAlignment="Stretch">
+                    <TextBlock Text="Evidence" Style="{StaticResource Text.Heading}" />
+                    <TextBlock Style="{StaticResource Text.Body}" Margin="0,6,0,18"
+                               Text="Headers of a mail that did get through are the baseline: they record how the receiving server judged it at the time. A bounce, if there is one, names the rejection directly. Either is enough to start; both is best." />
+
+                    <ContentControl Style="{StaticResource Hue.Callout}">
+                        <StackPanel>
+                            <TextBlock Text="Getting them out of Outlook" FontWeight="SemiBold" />
+                            <TextBlock Foreground="{DynamicResource Brush.TextDim}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="Easiest on an isolated system: drag the mails from Outlook to a folder (they become .msg files), carry them over, and drop them on the boxes below. Otherwise: File > Properties (Datei > Eigenschaften), copy everything in 'Internet headers' (Internetkopfzeilen). .eml and .txt files work too." />
+                        </StackPanel>
+                    </ContentControl>
+
+                    <TabControl x:Name="EvidenceTabs" Margin="0,16,0,0">
+                        <TabItem x:Name="BaselineTab">
+                            <TabItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <Path x:Name="BaselineCheck" Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Check}"
+                                          Stroke="{DynamicResource Brush.Ok}" Margin="0,0,6,0" Visibility="Collapsed" />
+                                    <TextBlock Text="Mail that worked" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </TabItem.Header>
+                            <Border Style="{StaticResource Hue.Card}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="HEADERS OF A MAIL THAT WORKED" Style="{StaticResource Text.Section}" />
+                                            <TextBlock x:Name="BaselineHint" Style="{StaticResource Text.Caption}" Margin="0,4,12,0" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Style="{StaticResource Hue.Button.Ghost}" Click="OnPasteBaseline" Content="Paste" />
+                                            <Button Style="{StaticResource Hue.Button.Ghost}" Click="OnOpenBaseline" Content="Open file..." Margin="6,0,0,0" />
+                                            <Button Style="{StaticResource Hue.Button.Ghost}" Click="OnClearBaseline" Content="Clear" Margin="6,0,0,0" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <TextBox x:Name="BaselineBox" Margin="0,12,0,0" Height="320"
+                                             AcceptsReturn="True" AcceptsTab="False" TextWrapping="NoWrap"
+                                             VerticalContentAlignment="Top"
+                                             HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                             FontFamily="{StaticResource Font.Mono}" FontSize="12"
+                                             AllowDrop="True" PreviewDragOver="OnBoxDragOver" PreviewDrop="OnBaselineDrop"
+                                             TextChanged="OnEvidenceChanged"
+                                             AutomationProperties.Name="Headers of a mail that worked" />
+                                    <WrapPanel x:Name="BaselineSummary" Margin="0,12,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </TabItem>
+                        <TabItem x:Name="FailingTab">
+                            <TabItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <Path x:Name="FailingCheck" Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Check}"
+                                          Stroke="{DynamicResource Brush.Ok}" Margin="0,0,6,0" Visibility="Collapsed" />
+                                    <TextBlock Text="Failing mail" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </TabItem.Header>
+                            <Border Style="{StaticResource Hue.Card}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="HEADERS OF A FAILING MAIL (IF ANY)" Style="{StaticResource Text.Section}" />
+                                            <TextBlock x:Name="FailingHint" Style="{StaticResource Text.Caption}" Margin="0,4,12,0" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Style="{StaticResource Hue.Button.Ghost}" Click="OnPasteFailing" Content="Paste" />
+                                            <Button Style="{StaticResource Hue.Button.Ghost}" Click="OnOpenFailing" Content="Open file..." Margin="6,0,0,0" />
+                                            <Button Style="{StaticResource Hue.Button.Ghost}" Click="OnClearFailing" Content="Clear" Margin="6,0,0,0" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <TextBox x:Name="FailingBox" Margin="0,12,0,0" Height="320"
+                                             AcceptsReturn="True" AcceptsTab="False" TextWrapping="NoWrap"
+                                             VerticalContentAlignment="Top"
+                                             HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                             FontFamily="{StaticResource Font.Mono}" FontSize="12"
+                                             AllowDrop="True" PreviewDragOver="OnBoxDragOver" PreviewDrop="OnFailingDrop"
+                                             TextChanged="OnEvidenceChanged"
+                                             AutomationProperties.Name="Headers of a failing mail" />
+                                    <WrapPanel x:Name="FailingSummary" Margin="0,12,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </TabItem>
+                        <TabItem x:Name="NdrTab">
+                            <TabItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <Path x:Name="NdrCheck" Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Check}"
+                                          Stroke="{DynamicResource Brush.Ok}" Margin="0,0,6,0" Visibility="Collapsed" />
+                                    <TextBlock Text="Bounce" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </TabItem.Header>
+                            <Border Style="{StaticResource Hue.Card}">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="BOUNCE OR ERROR MESSAGE (IF ANY)" Style="{StaticResource Text.Section}" />
+                                            <TextBlock x:Name="NdrHint" Style="{StaticResource Text.Caption}" Margin="0,4,12,0" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Style="{StaticResource Hue.Button.Ghost}" Click="OnPasteNdr" Content="Paste" />
+                                            <Button Style="{StaticResource Hue.Button.Ghost}" Click="OnOpenNdr" Content="Open file..." Margin="6,0,0,0" />
+                                            <Button Style="{StaticResource Hue.Button.Ghost}" Click="OnClearNdr" Content="Clear" Margin="6,0,0,0" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <TextBox x:Name="NdrBox" Margin="0,12,0,0" Height="320"
+                                             AcceptsReturn="True" AcceptsTab="False" TextWrapping="Wrap"
+                                             VerticalContentAlignment="Top"
+                                             VerticalScrollBarVisibility="Auto"
+                                             FontFamily="{StaticResource Font.Mono}" FontSize="12"
+                                             AllowDrop="True" PreviewDragOver="OnBoxDragOver" PreviewDrop="OnNdrDrop"
+                                             TextChanged="OnEvidenceChanged"
+                                             AutomationProperties.Name="Bounce or error message" />
+                                    <WrapPanel x:Name="NdrSummary" Margin="0,12,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </TabItem>
+                        <TabItem x:Name="HistoryTab">
+                            <TabItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <Path x:Name="HistoryCheck" Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Check}"
+                                          Stroke="{DynamicResource Brush.Ok}" Margin="0,0,6,0" Visibility="Collapsed" />
+                                    <TextBlock Text="Record history" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </TabItem.Header>
+                                <Border Style="{StaticResource Hue.Card}">
+                                    <StackPanel>
+                                        <TextBlock Text="RECORD HISTORY (OPTIONAL)" Style="{StaticResource Text.Section}" />
+                                        <TextBlock Style="{StaticResource Text.Caption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                                   Text="Shows what the DMARC, DKIM and SPF records looked like when the working mail was sent. For each row: Open the page, press Ctrl+A and Ctrl+C in the browser, then Paste in the same row. Any rows you fill help; none is required. The app fetches nothing from the archive." />
+                                        <StackPanel x:Name="HistoryRows" Margin="0,14,0,0" />
+                                        <TextBlock x:Name="HistoryFooter" Style="{StaticResource Text.Caption}" Margin="0,10,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                        </TabItem>
+                    </TabControl>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+                        <Button Click="OnBackToProblem" Content="Back" />
+                        <Button Style="{StaticResource Hue.Button.Primary}" Click="OnNextToChecks" Content="Next: checks" Margin="10,0,0,0" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ======================================================== page 3: checks -->
+            <ScrollViewer x:Name="PageChecks" Grid.Column="1" Padding="28,24" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <StackPanel MaxWidth="1040" HorizontalAlignment="Stretch">
+                    <TextBlock Text="Checks" Style="{StaticResource Text.Heading}" />
+                    <TextBlock Style="{StaticResource Text.Body}" Margin="0,6,0,18"
+                               Text="Suggested from the evidence. Correct anything that looks wrong; empty fields are skipped. Nothing is sent anywhere except DNS queries, and the optional port 25 and HTTPS probes." />
+
+                    <Border Style="{StaticResource Hue.Card}">
+                        <StackPanel>
+                            <TextBlock x:Name="SenderSideTitle" Text="SENDING SIDE" Style="{StaticResource Text.Section}" Margin="0,0,0,12" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="20" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Grid.Column="0">
+                                    <Label Content="_From domain (DMARC, DKIM)" Target="{Binding ElementName=SenderDomainBox}" />
+                                    <TextBox x:Name="SenderDomainBox" AutomationProperties.Name="From domain" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="0" Grid.Column="2">
+                                    <Label Content="_Envelope domain (SPF)" Target="{Binding ElementName=EnvelopeBox}" />
+                                    <TextBox x:Name="EnvelopeBox" AutomationProperties.Name="Envelope domain" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,14,0,0">
+                                    <Label Content="Sending _IP" Target="{Binding ElementName=SendingIpBox}" />
+                                    <TextBox x:Name="SendingIpBox" FontFamily="{StaticResource Font.Mono}" AutomationProperties.Name="Sending IP" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,14,0,0">
+                                    <Label Content="_DKIM selectors (selector:domain, one per line)" Target="{Binding ElementName=DkimBox}" />
+                                    <TextBox x:Name="DkimBox" AcceptsReturn="True" Height="76" TextWrapping="NoWrap"
+                                             VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"
+                                             FontFamily="{StaticResource Font.Mono}" AutomationProperties.Name="DKIM selectors" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Style="{StaticResource Text.Caption}" Margin="0,10,0,0"
+                                       Text="Without a selector, the common ones (selector1, google, k1, ...) are probed. Without an IP, SPF is checked as a record only." />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Hue.Card}" Margin="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock x:Name="ReceiverSideTitle" Text="RECEIVING SIDE" Style="{StaticResource Text.Section}" Margin="0,0,0,12" />
+                            <Label Content="_Recipient domain (MX, TLS, MTA-STS)" Target="{Binding ElementName=ReceiverBox}" />
+                            <TextBox x:Name="ReceiverBox" MaxWidth="500" HorizontalAlignment="Left" MinWidth="320" AutomationProperties.Name="Recipient domain" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Hue.Card}" Margin="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock Text="WHEN THE WORKING MAIL WAS SENT" Style="{StaticResource Text.Section}" Margin="0,0,0,12" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="20" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <Label Content="DMARC record at that _time" Target="{Binding ElementName=DmarcThenBox}" />
+                                    <ComboBox x:Name="DmarcThenBox" SelectedIndex="0" SelectionChanged="OnThenChanged" AutomationProperties.Name="DMARC record when the working mail was sent">
+                                        <ComboBoxItem Content="Automatic: from the headers and pasted history" />
+                                        <ComboBoxItem Content="Existed" />
+                                        <ComboBoxItem Content="Did not exist" />
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <Label Content="DKIM _key at that time" Target="{Binding ElementName=DkimThenBox}" />
+                                    <ComboBox x:Name="DkimThenBox" SelectedIndex="0" SelectionChanged="OnThenChanged" AutomationProperties.Name="DKIM key when the working mail was sent">
+                                        <ComboBoxItem Content="Automatic: from the headers and pasted history" />
+                                        <ComboBoxItem Content="Existed" />
+                                        <ComboBoxItem Content="Did not exist" />
+                                    </ComboBox>
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Style="{StaticResource Text.Caption}" Margin="0,10,0,0" TextWrapping="Wrap"
+                                       Text="Set these only when you know, for example from the sender or a history page. A record that was already missing when mail still arrived is not the cause; one removed afterwards may be." />
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="NotesCard" Style="{StaticResource Hue.Card}" Margin="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock Text="WHERE THE SUGGESTIONS CAME FROM" Style="{StaticResource Text.Section}" Margin="0,0,0,8" />
+                            <StackPanel x:Name="NotesPanel" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Hue.Card}" Margin="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock Text="OPTIONS" Style="{StaticResource Text.Section}" Margin="0,0,0,12" />
+                            <Label Content="DNS re_solver" Target="{Binding ElementName=ResolverBox}" />
+                            <ComboBox x:Name="ResolverBox" IsEditable="True" MaxWidth="500" MinWidth="320" HorizontalAlignment="Left"
+                                      AutomationProperties.Name="DNS resolver" />
+                            <TextBlock x:Name="ResolverHint" Style="{StaticResource Text.Caption}" Margin="0,6,0,14" />
+                            <CheckBox x:Name="OptAskAll" Style="{StaticResource Hue.Switch}" IsChecked="True" Margin="0,0,0,10"
+                                      Content="Ask every authoritative name server and compare their answers (needs port 53)" />
+                            <CheckBox x:Name="OptDoh" Style="{StaticResource Hue.Switch}" IsChecked="True" Margin="0,0,0,10"
+                                      Content="Fall back to DNS over HTTPS if port 53 is blocked here" />
+                            <CheckBox x:Name="OptBlocklists" Style="{StaticResource Hue.Switch}" IsChecked="True"
+                                      AutomationProperties.Name="Query blocklists">
+                                <TextBlock TextWrapping="Wrap"
+                                           Text="Query blocklists: major (Spamhaus, Barracuda, SpamCop, Mailspike), minor (PSBL, UCEPROTECT 1, DroneBL, blocklist.de, GBUdb), neighbourhood (UCEPROTECT 2/3), domains (Spamhaus DBL, SURBL, URIBL). Each list is self-tested first." />
+                            </CheckBox>
+                            <CheckBox x:Name="OptProbe" Style="{StaticResource Hue.Switch}" IsChecked="True" Margin="0,10,0,0"
+                                      Content="Probe the recipient's mail servers on port 25 (EHLO and STARTTLS only, never a message)" />
+                            <CheckBox x:Name="OptMtaSts" Style="{StaticResource Hue.Switch}" IsChecked="True" Margin="0,10,0,0"
+                                      Content="Fetch the recipient's MTA-STS policy over HTTPS" />
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+                        <Button Click="OnBackToEvidence" Content="Back" />
+                        <Button Style="{StaticResource Hue.Button.Primary}" Click="OnRun" Margin="10,0,0,0">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Play}" />
+                                <TextBlock Text="Run checks" Margin="8,0,0,0" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ======================================================== page 4: diagnosis -->
+            <Grid x:Name="PageDiagnosis" Grid.Column="1" Margin="28,24,28,18" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Diagnosis" Style="{StaticResource Text.Heading}" />
+                        <TextBlock x:Name="CaseLine" Style="{StaticResource Text.Body}" Margin="0,6,0,0" />
+
+                        <!-- Shown once the reverse direction has been checked: which of the two results is on screen. -->
+                        <StackPanel x:Name="ShownRow" Orientation="Horizontal" Margin="0,12,0,0" Visibility="Collapsed">
+                            <TextBlock Text="SHOWING" Style="{StaticResource Text.Section}" VerticalAlignment="Center" Margin="0,0,14,0" />
+                            <RadioButton x:Name="ShowForward" GroupName="ShownDirection" Checked="OnShownChanged"
+                                         VerticalAlignment="Center" AutomationProperties.Name="Show the diagnosis of the case" />
+                            <RadioButton x:Name="ShowReverse" GroupName="ShownDirection" Checked="OnShownChanged"
+                                         VerticalAlignment="Center" Margin="22,0,0,0" AutomationProperties.Name="Show the reverse-direction check" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                        <Button x:Name="AddDomainButton" Style="{StaticResource Hue.Button.Ghost}" Click="OnAddMyDomain"
+                                Visibility="Collapsed" Margin="0,0,12,0" />
+                        <ContentControl x:Name="StaleNotice" Style="{StaticResource Hue.Pill.Stale}"
+                                        Content="Evidence changed since this run" VerticalAlignment="Center" Visibility="Collapsed" />
+                    </StackPanel>
+                </Grid>
+
+                <TabControl x:Name="DiagnosisTabs" Grid.Row="1" Margin="0,14,0,0">
+                    <TabItem x:Name="SummaryTab" Header="Diagnosis">
+                        <ScrollViewer x:Name="DiagnosisScroll" VerticalScrollBarVisibility="Auto" Padding="0,14,10,4">
+                            <StackPanel MaxWidth="1060" HorizontalAlignment="Stretch">
+                                <ContentControl x:Name="LikelyHost" Focusable="False" />
+
+                                <Border Style="{StaticResource Hue.Card}" Margin="0,16,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="WORKING MAIL, FAILING MAIL AND NOW" Style="{StaticResource Text.Section}" />
+                                        <TextBlock Style="{StaticResource Text.Caption}" Margin="0,4,0,12"
+                                                   Text="Working and failing mail: what the receiving server recorded in their headers. Now: the same check against today's DNS. Amber cells differ from the working mail in a way that can hurt delivery; teal cells changed in favour of delivery. The difference is written underneath." />
+                                        <Grid x:Name="CompareGrid" />
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Style="{StaticResource Hue.Card}" Margin="0,16,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="ALL FINDINGS" Style="{StaticResource Text.Section}" Margin="0,0,0,4" />
+                                        <StackPanel x:Name="FindingsPanel" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <TabItem x:Name="TraceTab" Header="Technical trace">
+                        <Grid Margin="0,12,0,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" MinHeight="160" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="240" MinHeight="80" />
+                            </Grid.RowDefinitions>
+
+                            <WrapPanel Grid.Row="0" VerticalAlignment="Center">
+                                <Label Content="_Step" Target="{Binding ElementName=TraceStepFilter}" VerticalAlignment="Center" Padding="0,0,8,0" />
+                                <ComboBox x:Name="TraceStepFilter" MinWidth="220" SelectionChanged="OnTraceFilterChanged"
+                                          AutomationProperties.Name="Filter by step" />
+                                <Label Content="S_how" Target="{Binding ElementName=TraceOutcomeFilter}" VerticalAlignment="Center" Padding="16,0,8,0" />
+                                <ComboBox x:Name="TraceOutcomeFilter" MinWidth="170" SelectionChanged="OnTraceFilterChanged"
+                                          AutomationProperties.Name="Filter by outcome">
+                                    <ComboBoxItem Content="Everything" IsSelected="True" />
+                                    <ComboBoxItem Content="Warnings and failures" />
+                                    <ComboBoxItem Content="Failures only" />
+                                </ComboBox>
+                                <Label Content="_Find" Target="{Binding ElementName=TraceSearch}" VerticalAlignment="Center" Padding="16,0,8,0" />
+                                <TextBox x:Name="TraceSearch" MinWidth="240" TextChanged="OnTraceSearchChanged"
+                                         AutomationProperties.Name="Find in trace" />
+                                <TextBlock x:Name="TraceCount" Style="{StaticResource Text.Caption}" VerticalAlignment="Center" Margin="16,0,0,0" />
+                            </WrapPanel>
+
+                            <DataGrid x:Name="TraceGrid" Grid.Row="1" Margin="0,12,0,0"
+                                      Style="{StaticResource Hue.DataGrid.Compact}"
+                                      AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single"
+                                      CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column"
+                                      SelectionChanged="OnTraceSelectionChanged"
+                                      AutomationProperties.Name="Technical trace">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="#" Binding="{Binding Seq}" Width="48" />
+                                    <DataGridTextColumn Header="Time" Binding="{Binding TimeText}" Width="96" />
+                                    <DataGridTextColumn Header="ms" Binding="{Binding MsText}" Width="58" />
+                                    <DataGridTextColumn Header="Step" Binding="{Binding Step}" Width="92" />
+                                    <DataGridTextColumn Header="Kind" Binding="{Binding Kind}" Width="64" />
+                                    <DataGridTemplateColumn Header="Outcome" Width="104" SortMemberPath="Outcome">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <ContentControl Style="{StaticResource Trace.Marker}" />
+                                                    <TextBlock Text="{Binding OutcomeText}" Margin="7,0,0,0" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn Header="Action" Binding="{Binding Action}" Width="2*" MinWidth="220" />
+                                    <DataGridTextColumn Header="Result" Binding="{Binding Result}" Width="3*" MinWidth="220" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <Grid Grid.Row="2" Margin="0,10,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="SELECTED ENTRY: REQUEST AND FULL RESPONSE" Style="{StaticResource Text.Section}" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Style="{StaticResource Hue.Button.Ghost}" Click="OnCopyTraceEntry">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Path Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Copy}" />
+                                        <TextBlock Text="Copy entry" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                            <TextBox x:Name="TraceDetail" Grid.Row="3" IsReadOnly="True" TextWrapping="NoWrap"
+                                     VerticalContentAlignment="Top"
+                                     HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                     FontFamily="{StaticResource Font.Mono}" FontSize="12"
+                                     AutomationProperties.Name="Selected trace entry" />
+                        </Grid>
+                    </TabItem>
+
+                    <TabItem Header="Evidence as read">
+                        <TextBox x:Name="ParsedBox" Margin="0,12,0,0" IsReadOnly="True" TextWrapping="NoWrap"
+                                 VerticalContentAlignment="Top"
+                                 HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                 FontFamily="{StaticResource Font.Mono}" FontSize="12"
+                                 AutomationProperties.Name="Parsed headers" />
+                    </TabItem>
+                </TabControl>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                    <Button Click="OnBackToChecks" Content="Back" />
+                    <Button x:Name="ReverseButton" Click="OnReverse" Content="Check reverse direction" Margin="10,0,0,0"
+                            ToolTipService.ShowOnDisabled="True"
+                            ToolTip="Swaps the two domains and checks mail going the other way, with the same settings. A health check without evidence; the diagnosis of the case is kept." />
+                    <Button Click="OnExport" Margin="10,0,0,0" ToolTip="HTML report for sharing, JSON with findings and the full trace, CSV for Excel, or the text report">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Out}" />
+                            <TextBlock Text="Export..." Margin="8,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource Hue.Button.Primary}" Click="OnCopyReport" Margin="10,0,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource Hue.Icon}" Data="{StaticResource Icon.Copy}" />
+                            <TextBlock Text="Copy report" Margin="8,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <!-- ============================================================ status bar -->
+        <Border Grid.Row="2" Style="{StaticResource Hue.StatusBar}">
+            <StackPanel Orientation="Horizontal">
+                <ContentControl x:Name="StatusDot" Style="{StaticResource Hue.Marker}"
+                                Foreground="{DynamicResource Brush.Ok}" />
+                <TextBlock x:Name="StatusText" Text="Ready" Margin="9,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <busy:BusyOverlay x:Name="Busy" Grid.RowSpan="3" AnimateOverride="True" />
+    </Grid>
+</Window>

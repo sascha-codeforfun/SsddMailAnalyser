@@ -1,0 +1,52 @@
+<Window x:Class="SsddMailAnalyser.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings"
+        Style="{StaticResource Hue.Window}"
+        Width="560" SizeToContent="Height" ResizeMode="NoResize" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <!-- The kit's dialog structure: accent rim, chrome head band, raised body, buttons bottom right. -->
+    <Border Background="{DynamicResource Brush.Raised}" BorderBrush="{DynamicResource Brush.AccentEdge}"
+            BorderThickness="2">
+        <DockPanel>
+            <Border DockPanel.Dock="Top" Background="{DynamicResource Brush.Chrome}"
+                    BorderBrush="{DynamicResource Brush.LineSoft}" BorderThickness="0,0,0,1" Padding="26,20">
+                <TextBlock Text="Settings" Style="{StaticResource Text.Heading}" TextWrapping="Wrap" />
+            </Border>
+
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
+                        Margin="26,0,26,22">
+                <Button Content="Cancel" IsCancel="True" />
+                <Button Content="Save" Style="{StaticResource Hue.Button.Primary}" Click="OnSave" Margin="10,0,0,0" />
+            </StackPanel>
+
+            <StackPanel Margin="26,20,26,24">
+                <TextBlock Text="MY DOMAINS" Style="{StaticResource Text.Section}" Margin="0,0,0,4" />
+                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Margin="0,0,0,12"
+                           Text="The mail domains you look after. On the first step you pick one from a list, so only the other party's has to be typed." />
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="NewDomainBox" AutomationProperties.Name="Domain to add" />
+                    <Button Grid.Column="1" Content="_Add" Click="OnAdd" IsDefault="True" Margin="10,0,0,0" />
+                </Grid>
+
+                <ListBox x:Name="DomainList" Height="190" Margin="0,10,0,0" AutomationProperties.Name="My domains" />
+
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <Button Content="_Remove selected" Click="OnRemove" />
+                </StackPanel>
+
+                <TextBlock Text="BUSY ANIMATION" Style="{StaticResource Text.Section}" Margin="0,22,0,8" />
+                <CheckBox x:Name="AlwaysTurnBox" Content="Override system setting (always turn)" />
+                <TextBlock Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,6,0,0"
+                           Text="Windows turns animation off in remote sessions and virtual machines. Ticked, the busy rings turn anyway; unticked, they follow Windows." />
+
+                <TextBlock x:Name="PathText" Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,22,0,0" />
+            </StackPanel>
+        </DockPanel>
+    </Border>
+</Window>

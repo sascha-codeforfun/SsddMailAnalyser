@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>SsddMailAnalyser</RootNamespace>
+    <AssemblyName>SsddMailAnalyser</AssemblyName>
+    <Product>SsddMailAnalyser</Product>
+    <Description>Suspicious SPF, DKIM, DMARC - guided diagnosis of undelivered mail</Description>
+    <Version>1.7.13</Version>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <!-- Lets the same command publish the Windows exe from a Linux or macOS build machine. No effect on Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <!-- Single self-contained file, native assemblies included -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- No debug information: symbols record the source paths, so the same source built in
+         another folder would give a different assembly. -->
+    <DebugType>none</DebugType>
+    <!-- No commit hash appended to the product version: a build from a git clone matches one from a zip. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <DebugSymbols>false</DebugSymbols>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="app.ico" />
+    <Resource Include="app_256.png" />
+  </ItemGroup>
+
+  <!-- Read by HueVersion.Sdk for the header's version block ("built with SDK ..."). -->
+  <ItemGroup>
+    <AssemblyMetadata Include="SdkVersion" Value="$(NETCoreSdkVersion)" />
+  </ItemGroup>
+
+</Project>
